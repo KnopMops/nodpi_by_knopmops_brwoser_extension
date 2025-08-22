@@ -1,7 +1,7 @@
 let proxyEnabled = false
-let pythonProcess = null
 
-// Обработчик сообщений от popup
+checkProxyStatus()
+
 chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 	if (request.action === 'enableProxy') {
 		enableProxy()
@@ -12,7 +12,7 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 			.catch(error => {
 				sendResponse({ success: false, message: error.message })
 			})
-		return true // Указываем, что ответ будет асинхронным
+		return true
 	}
 
 	if (request.action === 'disableProxy') {
@@ -28,14 +28,36 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 	}
 
 	if (request.action === 'getStatus') {
-		sendResponse({ enabled: proxyEnabled })
+		checkProxyStatus().then(status => {
+			sendResponse({ enabled: status })
+		})
+		return true
 	}
 })
 
-// Включение прокси
+async function checkProxyStatus() {
+	return new Promise(resolve => {
+		chrome.proxy.settings.get({}, function (config) {
+			if (
+				config.value &&
+				config.value.mode === 'fixed_servers' &&
+				config.value.rules &&
+				config.value.rules.singleProxy &&
+				config.value.rules.singleProxy.host === '127.0.0.1' &&
+				config.value.rules.singleProxy.port === 8881
+			) {
+				proxyEnabled = true
+				resolve(true)
+			} else {
+				proxyEnabled = false
+				resolve(false)
+			}
+		})
+	})
+}
+
 async function enableProxy() {
 	try {
-		// Настройка прокси в браузере
 		const config = {
 			mode: 'fixed_servers',
 			rules: {
@@ -49,9 +71,7 @@ async function enableProxy() {
 		}
 
 		await chrome.proxy.settings.set({ value: config, scope: 'regular' })
-
-		// Запуск Python-скрипта (этот код будет работать только в окружении,
-		// где доступно выполнение внешних процессов, например, в Native Messaging)
+		proxyEnabled = true
 		console.log('Прокси активирован: 127.0.0.1:8881')
 	} catch (error) {
 		console.error('Ошибка при включении прокси:', error)
@@ -59,19 +79,20 @@ async function enableProxy() {
 	}
 }
 
-// Выключение прокси
 async function disableProxy() {
 	try {
-		// Отключение прокси в браузере
 		await chrome.proxy.settings.set({
 			value: { mode: 'direct' },
 			scope: 'regular',
 		})
-
-		// Остановка Python-скрипта
+		proxyEnabled = false
 		console.log('Прокси деактивирован')
 	} catch (error) {
 		console.error('Ошибка при выключении прокси:', error)
 		throw error
 	}
 }
+
+chrome.proxy.onProxyError.addListener(function (error) {
+	console.error('Ошибка прокси:', error)
+})
